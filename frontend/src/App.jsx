@@ -1,18 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, ArrowDownUp, ArrowLeft, ArrowRight, Bell, Check, ChevronDown, CircleHelp, Clock3, MapPin, Menu, MessageSquareWarning, Minus, Plus, Search, ShieldCheck, Store as StoreIcon, X } from 'lucide-react'
 import { products } from './data/products'
-import { initialComplaints, stores, topics } from './data/demo'
-import { api, median } from './services/api'
+import { stores, topics } from './data/demo'
+import { api, authToken, median } from './services/api'
 
 const money = new Intl.NumberFormat('ru-RU')
 
-function useData() {
+function useData(user) {
   const [priceReports, setPriceReports] = useState({})
-  const [complaints, setComplaints] = useState(initialComplaints)
+  const [complaints, setComplaints] = useState([])
   useEffect(() => {
+    if (!user) {
+      setPriceReports({})
+      setComplaints([])
+      return
+    }
     api.stores().then(() => {}).catch(() => {})
     api.products().then(() => {}).catch(() => {})
-    api.complaints().then(rows => { if (rows?.length) setComplaints(rows.map(c => ({ ...c, store: c.store_name || c.store, createdAt: c.created_at || c.createdAt }))) }).catch(() => {})
+    if (user.is_staff) api.complaints().then(rows => setComplaints(rows.map(c => ({ ...c, store: c.store_name || c.store, createdAt: c.created_at || c.createdAt })))).catch(() => {})
     const refreshPrices = () => api.priceReports().then(rows => {
       const grouped = {}
       rows.forEach(row => { grouped[`${row.store}:${row.product}`] = { median: row.median, count: row.observations } })
@@ -21,7 +26,7 @@ function useData() {
     refreshPrices()
     const timer = window.setInterval(refreshPrices, 10000)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [user?.id, user?.is_staff])
   const addPrice = (storeId, productId, price) => {
     const key = `${storeId}:${productId}`
     setPriceReports(prev => ({ ...prev, [key]: [...(prev[key] || []), Number(price)] }))
@@ -41,8 +46,44 @@ function useData() {
   return { priceReports, complaints, addPrice, addComplaint, setStatus }
 }
 
-function Header({ page, setPage, pending }) {
-  return <header className="topbar"><div className="brand" onClick={() => setPage('map')}><div className="brand-mark"><span>Б</span></div><div><b>баға</b><small>КЫЗЫЛОРДА</small></div></div><nav className="top-nav"><button className={page === 'map' ? 'active' : ''} onClick={() => setPage('map')}><MapPin size={17}/> Карта магазинов</button><button className={page === 'admin' ? 'active' : ''} onClick={() => setPage('admin')}><ShieldCheck size={17}/> Кабинет администратора {pending > 0 && <em>{pending}</em>}</button></nav><div className="profile"><span className="online-dot"/>Гость <div className="avatar">Г</div></div><button className="mobile-menu"><Menu/></button></header>
+function Header({ user, onLogout }) {
+  return <header className="topbar"><div className="brand"><div className="brand-mark"><span>Б</span></div><div><b>баға</b><small>КЫЗЫЛОРДА</small></div></div><nav className="top-nav"><span className="role-label">{user.is_staff ? <><ShieldCheck size={17}/> Кабинет администратора</> : <><MapPin size={17}/> Карта магазинов</>}</span></nav><div className="profile"><span>{user.full_name || user.username}</span><div className="avatar">{(user.full_name || user.username).slice(0, 1).toUpperCase()}</div><button className="logout-button" onClick={onLogout}>Выйти</button></div><button className="mobile-menu" onClick={onLogout}>Выйти</button></header>
+}
+
+function AuthPage({ initialMode, onAuthenticated, onNavigate }) {
+  const [mode, setMode] = useState(initialMode)
+  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
+  const [fullName, setFullName] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmation, setConfirmation] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const isRegister = mode === 'register'
+  const switchMode = next => { setMode(next); setError(''); onNavigate(next === 'register' ? '/register' : '/login') }
+  const submit = async event => {
+    event.preventDefault()
+    setError('')
+    if (isRegister && password !== confirmation) return setError('Пароли не совпадают')
+    setBusy(true)
+    try {
+      const result = isRegister
+        ? await api.register({ username, email, full_name: fullName, password })
+        : await api.login({ login: username, password })
+      onAuthenticated(result)
+    } catch (err) {
+      setError(err.message || 'Не удалось выполнить запрос')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return <main className="auth-page"><div className="auth-card"><div className="auth-brand"><div className="brand-mark"><span>Б</span></div><div><b>баға</b><small>КЫЗЫЛОРДА</small></div></div><div className="eyebrow">МОНИТОРИНГ ЦЕН · КЫЗЫЛОРДА</div><h1>{isRegister ? 'Создать аккаунт' : 'С возвращением'}</h1><p>{isRegister ? 'Зарегистрируйтесь, чтобы сообщать цены и оставлять обращения.' : 'Войдите, чтобы продолжить работу с мониторингом цен.'}</p><div className="auth-tabs"><button className={!isRegister ? 'active' : ''} onClick={() => switchMode('login')}>Войти</button><button className={isRegister ? 'active' : ''} onClick={() => switchMode('register')}>Регистрация</button></div><form onSubmit={submit}>
+    {isRegister && <><label className="field-label">Имя пользователя<input required minLength="3" autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} placeholder="Например, aigerim"/></label><label className="field-label">Электронная почта<input required type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com"/></label><label className="field-label">Ваше имя <span className="optional">необязательно</span><input autoComplete="name" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Как к вам обращаться"/></label></>}
+    {!isRegister && <label className="field-label">Имя пользователя или e-mail<input required autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} placeholder="Ваш логин или e-mail"/></label>}
+    <label className="field-label">Пароль<input required type="password" minLength={isRegister ? 8 : undefined} autoComplete={isRegister ? 'new-password' : 'current-password'} value={password} onChange={e => setPassword(e.target.value)} placeholder={isRegister ? 'Не менее 8 символов' : 'Введите пароль'}/></label>
+    {isRegister && <label className="field-label">Повторите пароль<input required type="password" autoComplete="new-password" value={confirmation} onChange={e => setConfirmation(e.target.value)} placeholder="Ещё раз пароль"/></label>}
+    {error && <div className="auth-error">{error}</div>}<button className="primary-button full auth-submit" disabled={busy}>{busy ? 'Подождите…' : isRegister ? 'Создать аккаунт' : 'Войти'} <ArrowRight size={17}/></button>
+  </form><div className="auth-footnote">{isRegister ? 'Регистрация создаёт обычный пользовательский аккаунт.' : 'Для администратора войдите под учётной записью Django staff.'}</div></div><div className="auth-background-note">Открытые цены. Надёжные наблюдения.</div></main>
 }
 
 function MapGraphic({ selected, onSelect, query }) {
@@ -88,14 +129,62 @@ function MapPage({ data }) {
   return <main className="page-wrap"><div className="page-intro"><div><div className="eyebrow"><span className="live-dot"/> МОНИТОРИНГ ЦЕН · КЫЗЫЛОРДА</div><h1>Цены рядом с вами</h1><p>Сверяйте цены и делитесь тем, что увидели в магазине</p></div><div className="intro-chip"><span className="chip-symbol">₸</span><div><b>31 товар</b><small>социально значимых</small></div></div></div><div className="map-layout"><section className="map-frame"><div className="map-header"><div><div className="eyebrow">ИНТЕРАКТИВНАЯ КАРТА</div><h2>Магазины города <span>· {stores.length}</span></h2></div><label className="search-field"><Search size={17}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Поиск магазина"/></label></div><MapGraphic selected={selected} onSelect={setSelected} query={query}/></section><aside className="store-frame">{selected ? <StoreDetails store={selected} data={data} onBack={() => setSelected(null)}/> : <><div className="store-frame-heading"><div><div className="eyebrow">ТОРГОВЫЕ ТОЧКИ</div><h2>Выберите магазин</h2></div><button className="icon-button"><ArrowDownUp size={17}/></button></div><p className="sidebar-subtitle">Нажмите на точку на карте или выберите магазин из списка</p><div className="store-list">{stores.filter(s => s.name.toLowerCase().includes(query.toLowerCase()) || s.address.toLowerCase().includes(query.toLowerCase())).map(s => <button key={s.id} className="store-card" onClick={() => setSelected(s)}><span className="store-mini"><StoreIcon size={18}/></span><span className="store-card-copy"><b>{s.name}</b><small><MapPin size={12}/>{s.address}</small><small>{s.district} · <i>Открыто</i></small></span><ChevronDown size={16} className="store-chevron"/></button>)}</div><div className="sidebar-note"><AlertCircle size={16}/><span>Цены собираются от покупателей. Проверьте цену в магазине перед покупкой.</span></div></>}</aside></div><section className="how-section"><div><div className="eyebrow">КАК ЭТО РАБОТАЕТ</div><h2>Цены становятся точнее вместе</h2><p>Каждое наблюдение помогает видеть более объективную стоимость товара в городе.</p></div><div className="steps"><div><span>01</span><b>Выберите магазин</b><small>Найдите точку на карте</small></div><ArrowRight/><div><span>02</span><b>Укажите цену покупки</b><small>Введите чековую цену</small></div><ArrowRight/><div><span>03</span><b>Смотрите медиану</b><small>Устойчивая цена по городу</small></div></div></section><footer className="footer"><span>баға · Кызылорда</span><span>Данные о ценах предоставляют пользователи</span><button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>Наверх ↑</button></footer></main>
 }
 
+function ComplaintDetail({ complaint: c, setStatus, onClose }) {
+  return <div className="complaint-detail">
+    <div className="detail-banner"><div><div className="eyebrow">ДЕТАЛИ ОБРАЩЕНИЯ · #{c.id}</div><h3>{c.topic}</h3></div><button className="icon-button" onClick={onClose}><X size={17}/></button></div>
+    <div className="detail-grid"><div><span>МАГАЗИН</span><b>{c.store}</b></div><div><span>ТОВАР</span><b>{c.product || 'Не указан'}</b></div><div><span>ПОЛУЧЕНО</span><b>{c.createdAt}</b></div></div>
+    <div className="comment-box"><span>КОММЕНТАРИЙ ПОЛЬЗОВАТЕЛЯ</span><p>{c.comment || 'Пользователь не добавил комментарий.'}</p></div>
+    <div className="detail-actions"><span className={`status-pill ${c.status}`}>{c.status === 'pending' ? 'Ожидает' : 'Рассмотрена'}</span>{c.status === 'pending' ? <button className="primary-button" onClick={() => { setStatus(c.id, 'reviewed'); onClose() }}><Check size={16}/>Отметить рассмотренной</button> : <button className="secondary-button" onClick={() => { setStatus(c.id, 'pending'); onClose() }}><Clock3 size={15}/>Вернуть в ожидание</button>}</div>
+  </div>
+}
+
 function AdminPage({ complaints, setStatus }) {
   const [filter, setFilter] = useState('all'); const [active, setActive] = useState(null); const [search, setSearch] = useState('')
   const sorted = [...complaints].filter(c => (filter === 'all' || c.status === filter) && `${c.topic} ${c.store} ${c.product} ${c.comment}`.toLowerCase().includes(search.toLowerCase())).sort((a, b) => (a.status === 'pending' ? -1 : 1) - (b.status === 'pending' ? -1 : 1))
   const pending = complaints.filter(c => c.status === 'pending').length
-  return <main className="admin-wrap"><div className="admin-heading"><div><div className="eyebrow"><ShieldCheck size={14}/> РАБОЧЕЕ ПРОСТРАНСТВО</div><h1>Панель администратора</h1><p>Управление обращениями жителей и обратной связью</p></div><div className="admin-user"><div className="avatar admin-avatar">А</div><span><b>Администратор</b><small>Модератор системы</small></span><ChevronDown size={16}/></div></div><div className="stat-grid"><div className="stat-card"><div className="stat-icon blue"><MessageSquareWarning/></div><span>ВСЕ ОБРАЩЕНИЯ</span><b>{complaints.length}</b><small>за всё время</small></div><div className="stat-card"><div className="stat-icon amber"><Clock3/></div><span>ОЖИДАЮТ РАССМОТРЕНИЯ</span><b>{pending}</b><small>{pending ? 'Требуют вашего внимания' : 'Очередь пуста'}</small></div><div className="stat-card"><div className="stat-icon green"><Check/></div><span>РАССМОТРЕНО</span><b>{complaints.length - pending}</b><small>Обработано обращений</small></div><div className="stat-card"><div className="stat-icon purple"><StoreIcon/></div><span>ТОРГОВЫЕ ТОЧКИ</span><b>{stores.length}</b><small>в городе Кызылорда</small></div></div><section className="complaints-frame"><div className="complaints-header"><div><div className="eyebrow">ВХОДЯЩИЕ</div><h2>Жалобы пользователей <span className="count-badge">{complaints.length}</span></h2></div><label className="search-field"><Search size={17}/><input placeholder="Поиск по обращениям" value={search} onChange={e => { setSearch(e.target.value); setActive(null) }}/></label></div><div className="complaint-tabs"><button className={filter === 'all' ? 'selected' : ''} onClick={() => setFilter('all')}>Все <span>{complaints.length}</span></button><button className={filter === 'pending' ? 'selected' : ''} onClick={() => setFilter('pending')}>Ожидают <span>{pending}</span></button><button className={filter === 'reviewed' ? 'selected' : ''} onClick={() => setFilter('reviewed')}>Рассмотрены <span>{complaints.length - pending}</span></button></div><div className="complaint-table"><div className="table-head"><span>ОБРАЩЕНИЕ</span><span>МАГАЗИН</span><span>ДАТА</span><span>СТАТУС</span><span></span></div>{sorted.map(c => <button className={`complaint-row ${active === c.id ? 'row-active' : ''}`} key={c.id} onClick={() => setActive(active === c.id ? null : c.id)}><span className="complaint-main"><span className="complaint-symbol"><MessageSquareWarning size={16}/></span><span><b>{c.topic}</b><small>{c.product || 'Без указания товара'}</small></span></span><span className="table-store"><StoreIcon size={15}/>{c.store}</span><span className="table-date">{c.createdAt}</span><span><i className={`status-pill ${c.status}`}>{c.status === 'pending' ? <><span/>Ожидает</> : <><Check size={12}/>Рассмотрена</>}</i></span><ArrowRight size={16} className="row-arrow"/></button>)}{!sorted.length && <div className="empty-state">Обращений в этой категории пока нет</div>}</div>{active && (() => { const c = complaints.find(item => item.id === active); return <div className="complaint-detail"><div className="detail-banner"><div><div className="eyebrow">ДЕТАЛИ ОБРАЩЕНИЯ · #{c.id}</div><h3>{c.topic}</h3></div><button className="icon-button" onClick={() => setActive(null)}><X size={17}/></button></div><div className="detail-grid"><div><span>МАГАЗИН</span><b>{c.store}</b></div><div><span>ТОВАР</span><b>{c.product || 'Не указан'}</b></div><div><span>ПОЛУЧЕНО</span><b>{c.createdAt}</b></div></div><div className="comment-box"><span>КОММЕНТАРИЙ ПОЛЬЗОВАТЕЛЯ</span><p>{c.comment || 'Пользователь не добавил комментарий.'}</p></div><div className="detail-actions"><span className={`status-pill ${c.status}`}>{c.status === 'pending' ? 'Ожидает' : 'Рассмотрена'}</span>{c.status === 'pending' ? <button className="primary-button" onClick={() => { setStatus(c.id, 'reviewed'); setActive(null) }}><Check size={16}/>Отметить рассмотренной</button> : <button className="secondary-button" onClick={() => { setStatus(c.id, 'pending'); setActive(null) }}><Clock3 size={15}/>Вернуть в ожидание</button>}</div></div>)()}</section><footer className="footer"><span>баға · Администрирование</span><span>Панель обработки обращений</span><button>Поддержка <CircleHelp size={14}/></button></footer></main>
+  return <main className="admin-wrap"><div className="admin-heading"><div><div className="eyebrow"><ShieldCheck size={14}/> РАБОЧЕЕ ПРОСТРАНСТВО</div><h1>Панель администратора</h1><p>Управление обращениями жителей и обратной связью</p></div><div className="admin-user"><div className="avatar admin-avatar">А</div><span><b>Администратор</b><small>Модератор системы</small></span><ChevronDown size={16}/></div></div><div className="stat-grid"><div className="stat-card"><div className="stat-icon blue"><MessageSquareWarning/></div><span>ВСЕ ОБРАЩЕНИЯ</span><b>{complaints.length}</b><small>за всё время</small></div><div className="stat-card"><div className="stat-icon amber"><Clock3/></div><span>ОЖИДАЮТ РАССМОТРЕНИЯ</span><b>{pending}</b><small>{pending ? 'Требуют вашего внимания' : 'Очередь пуста'}</small></div><div className="stat-card"><div className="stat-icon green"><Check/></div><span>РАССМОТРЕНО</span><b>{complaints.length - pending}</b><small>Обработано обращений</small></div><div className="stat-card"><div className="stat-icon purple"><StoreIcon/></div><span>ТОРГОВЫЕ ТОЧКИ</span><b>{stores.length}</b><small>в городе Кызылорда</small></div></div><section className="complaints-frame"><div className="complaints-header"><div><div className="eyebrow">ВХОДЯЩИЕ</div><h2>Жалобы пользователей <span className="count-badge">{complaints.length}</span></h2></div><label className="search-field"><Search size={17}/><input placeholder="Поиск по обращениям" value={search} onChange={e => { setSearch(e.target.value); setActive(null) }}/></label></div><div className="complaint-tabs"><button className={filter === 'all' ? 'selected' : ''} onClick={() => setFilter('all')}>Все <span>{complaints.length}</span></button><button className={filter === 'pending' ? 'selected' : ''} onClick={() => setFilter('pending')}>Ожидают <span>{pending}</span></button><button className={filter === 'reviewed' ? 'selected' : ''} onClick={() => setFilter('reviewed')}>Рассмотрены <span>{complaints.length - pending}</span></button></div><div className="complaint-table"><div className="table-head"><span>ОБРАЩЕНИЕ</span><span>МАГАЗИН</span><span>ДАТА</span><span>СТАТУС</span><span></span></div>{sorted.map(c => <button className={`complaint-row ${active === c.id ? 'row-active' : ''}`} key={c.id} onClick={() => setActive(active === c.id ? null : c.id)}><span className="complaint-main"><span className="complaint-symbol"><MessageSquareWarning size={16}/></span><span><b>{c.topic}</b><small>{c.product || 'Без указания товара'}</small></span></span><span className="table-store"><StoreIcon size={15}/>{c.store}</span><span className="table-date">{c.createdAt}</span><span><i className={`status-pill ${c.status}`}>{c.status === 'pending' ? <><span/>Ожидает</> : <><Check size={12}/>Рассмотрена</>}</i></span><ArrowRight size={16} className="row-arrow"/></button>)}{!sorted.length && <div className="empty-state">Обращений в этой категории пока нет</div>}</div>{active && <ComplaintDetail complaint={complaints.find(item => item.id === active)} setStatus={setStatus} onClose={() => setActive(null)}/>}</section><footer className="footer"><span>баға · Администрирование</span><span>Панель обработки обращений</span><button>Поддержка <CircleHelp size={14}/></button></footer></main>
 }
 
 export default function App() {
-  const [page, setPage] = useState('map'); const data = useData(); const pending = data.complaints.filter(c => c.status === 'pending').length
-  return <div className="app-shell"><Header page={page} setPage={setPage} pending={pending}/>{page === 'map' ? <MapPage data={data}/> : <AdminPage complaints={data.complaints} setStatus={data.setStatus}/>}</div>
+  const [path, setPath] = useState(window.location.pathname)
+  const [user, setUser] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const data = useData(user)
+  const navigate = nextPath => {
+    if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath)
+    setPath(nextPath)
+  }
+
+  useEffect(() => {
+    const onPopState = () => setPath(window.location.pathname)
+    window.addEventListener('popstate', onPopState)
+    if (!authToken.get()) setLoading(false)
+    else api.me().then(setUser).catch(() => authToken.clear()).finally(() => setLoading(false))
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  useEffect(() => {
+    if (loading || !user) return
+    const correctPath = user.is_staff ? '/admin' : '/'
+    if (path !== correctPath) {
+      window.history.replaceState({}, '', correctPath)
+      setPath(correctPath)
+    }
+  }, [loading, user, path])
+
+  const handleAuthenticated = result => {
+    authToken.set(result.token)
+    setUser(result.user)
+    navigate(result.user.is_staff ? '/admin' : '/')
+  }
+  const logout = async () => {
+    try { await api.logout() } catch {}
+    authToken.clear()
+    setUser(null)
+    navigate('/login')
+  }
+
+  if (loading) return <div className="auth-loading">Проверяем сессию…</div>
+  if (!user) return <AuthPage key={path === '/register' ? 'register' : 'login'} initialMode={path === '/register' ? 'register' : 'login'} onAuthenticated={handleAuthenticated} onNavigate={navigate}/>
+  return <div className="app-shell"><Header user={user} onLogout={logout}/>{user.is_staff ? <AdminPage complaints={data.complaints} setStatus={data.setStatus}/> : <MapPage data={data}/>}</div>
 }

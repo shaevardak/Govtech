@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 class Store(models.Model):
@@ -24,6 +25,7 @@ class PriceObservation(models.Model):
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='price_observations')
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='price_observations')
     price = models.PositiveIntegerField()
+    reported_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='price_observations')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -34,6 +36,7 @@ class Complaint(models.Model):
     REVIEWED = 'reviewed'
     STATUS_CHOICES = [(PENDING, 'Ожидает'), (REVIEWED, 'Рассмотрена')]
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='complaints')
+    reported_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='complaints')
     topic = models.CharField(max_length=180)
     product_name = models.CharField(max_length=240, blank=True)
     comment = models.TextField(blank=True, max_length=1000)
@@ -42,3 +45,9 @@ class Complaint(models.Model):
 
     class Meta:
         ordering = ['status', '-created_at']
+
+class UserSession(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='api_sessions')
+    token_hash = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()

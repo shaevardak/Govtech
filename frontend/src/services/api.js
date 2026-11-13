@@ -1,12 +1,27 @@
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+const TOKEN_KEY = 'baga-auth-token'
+
+export const authToken = {
+  get: () => localStorage.getItem(TOKEN_KEY),
+  set: token => localStorage.setItem(TOKEN_KEY, token),
+  clear: () => localStorage.removeItem(TOKEN_KEY),
+}
 
 async function request(path, options = {}) {
-  const response = await fetch(`${API}${path}`, { headers: { 'Content-Type': 'application/json', ...options.headers }, ...options })
-  if (!response.ok) throw new Error(`API error ${response.status}`)
+  const token = authToken.get()
+  const response = await fetch(`${API}${path}`, { ...options, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options.headers } })
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}))
+    throw new Error(body.error || `Ошибка API (${response.status})`)
+  }
   return response.status === 204 ? null : response.json()
 }
 
 export const api = {
+  register: payload => request('/auth/register/', { method: 'POST', body: JSON.stringify(payload) }),
+  login: payload => request('/auth/login/', { method: 'POST', body: JSON.stringify(payload) }),
+  me: () => request('/auth/me/'),
+  logout: () => request('/auth/logout/', { method: 'POST' }),
   stores: () => request('/stores/'),
   products: () => request('/products/'),
   priceReports: () => request('/price-reports/'),
