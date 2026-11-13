@@ -124,7 +124,7 @@ def serialized_complaint(row):
 def stores(request):
     rows = Store.objects.filter(is_active=True)
     return JsonResponse([{'id': s.id, 'name': s.name, 'address': s.address, 'district': s.district,
-        'latitude': s.latitude, 'longitude': s.longitude} for s in rows], safe=False)
+        'latitude': s.latitude, 'longitude': s.longitude, 'source_url': s.source_url} for s in rows], safe=False)
 
 @require_http_methods(['GET'])
 def products(request):

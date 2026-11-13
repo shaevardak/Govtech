@@ -7,6 +7,7 @@ class Store(models.Model):
     district = models.CharField(max_length=100)
     latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    source_url = models.URLField(blank=True, default='')
     is_active = models.BooleanField(default=True)
 
     def __str__(self):
