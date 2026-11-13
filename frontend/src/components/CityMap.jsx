@@ -1,7 +1,7 @@
 import { CircleMarker, MapContainer, Popup, TileLayer, ZoomControl } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 
-const CITY_CENTER = [44.82818, 65.517399]
+const CITY_CENTER = [44.839103, 65.505723]
 const TILE_URL = import.meta.env.VITE_MAP_TILE_URL || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 
 export default function CityMap({ stores, selected, onSelect, query }) {
